@@ -1,0 +1,244 @@
+-- ============================================
+-- ADMIN PANEL LOCAL SCRIPT
+-- Interface gráfica para gerenciar hackers
+-- ============================================
+
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+-- Admin UserId
+local ADMIN_ID = 5618088588
+
+-- Verificar se é admin
+if player.UserId ~= ADMIN_ID then
+	print("❌ Acesso negado! Apenas o admin pode usar este painel.")
+	return
+end
+
+-- Remotes
+local remoteFolder = game:GetService("ReplicatedStorage"):WaitForChild("AntiCheatRemotes")
+local updateStatsEvent = remoteFolder:WaitForChild("UpdateSuspiciousStats")
+local kickPlayerEvent = remoteFolder:WaitForChild("KickSuspiciousPlayer")
+
+-- ============================================
+-- CRIAR GUI DO ADMIN PANEL
+-- ============================================
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "AdminPanelGui"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = playerGui
+
+-- ============================================
+-- BOTÃO FLUTUANTE PARA ABRIR PAINEL
+-- ============================================
+local toggleButton = Instance.new("TextButton")
+toggleButton.Name = "ToggleButton"
+toggleButton.Size = UDim2.new(0, 120, 0, 50)
+toggleButton.Position = UDim2.new(0, 20, 0, 20)
+toggleButton.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleButton.TextSize = 16
+toggleButton.Font = Enum.Font.GothamBold
+toggleButton.Text = "👮 ADMIN"
+toggleButton.Parent = screenGui
+
+-- Frame do painel principal
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainPanel"
+mainFrame.Size = UDim2.new(0, 600, 0, 700)
+mainFrame.Position = UDim2.new(0.5, -300, 0.5, -350)
+mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+mainFrame.BorderSizePixel = 0
+mainFrame.Visible = false
+mainFrame.Parent = screenGui
+
+-- Título
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Name = "Title"
+titleLabel.Size = UDim2.new(1, 0, 0, 50)
+titleLabel.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+titleLabel.TextSize = 24
+titleLabel.Font = Enum.Font.GothamBold
+titleLabel.Text = "🛡️ ANTI-CHEAT ADMIN PANEL"
+titleLabel.Parent = mainFrame
+
+-- Fechar painel
+local closeButton = Instance.new("TextButton")
+closeButton.Name = "CloseButton"
+closeButton.Size = UDim2.new(0, 40, 0, 40)
+closeButton.Position = UDim2.new(1, -45, 0, 5)
+closeButton.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+closeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+closeButton.TextSize = 20
+closeButton.Font = Enum.Font.GothamBold
+closeButton.Text = "X"
+closeButton.Parent = mainFrame
+
+-- ScrollingFrame para lista de players
+local scrollFrame = Instance.new("ScrollingFrame")
+scrollFrame.Name = "PlayerList"
+scrollFrame.Size = UDim2.new(1, -20, 1, -70)
+scrollFrame.Position = UDim2.new(0, 10, 0, 60)
+scrollFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+scrollFrame.BorderSizePixel = 0
+scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+scrollFrame.ScrollBarThickness = 15
+scrollFrame.Parent = mainFrame
+
+-- UIListLayout para organizar players
+local listLayout = Instance.new("UIListLayout")
+listLayout.Padding = UDim.new(0, 5)
+listLayout.Parent = scrollFrame
+
+-- ============================================
+-- DICIONÁRIO DE PLAYERS SUSPEITOS
+-- ============================================
+local suspiciousPlayers = {}
+
+-- ============================================
+-- CRIAR CARD DE PLAYER SUSPEITO
+-- ============================================
+local function createPlayerCard(stats)
+	local card = Instance.new("Frame")
+	card.Name = "PlayerCard_" .. stats.playerId
+	card.Size = UDim2.new(1, -15, 0, 120)
+	card.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+	card.BorderColor3 = Color3.fromRGB(255, 0, 0)
+	card.BorderSizePixel = 2
+	card.Parent = scrollFrame
+	
+	-- Nome do player
+	local nameLabel = Instance.new("TextLabel")
+	nameLabel.Size = UDim2.new(1, -10, 0, 25)
+	nameLabel.Position = UDim2.new(0, 5, 0, 5)
+	nameLabel.BackgroundTransparency = 1
+	nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+	nameLabel.TextSize = 16
+	nameLabel.Font = Enum.Font.GothamBold
+	nameLabel.Text = "👤 " .. stats.playerName .. " (ID: " .. stats.playerId .. ")"
+	nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+	nameLabel.Parent = card
+	
+	-- Stats
+	local statsLabel = Instance.new("TextLabel")
+	statsLabel.Size = UDim2.new(1, -10, 0, 35)
+	statsLabel.Position = UDim2.new(0, 5, 0, 30)
+	statsLabel.BackgroundTransparency = 1
+	statsLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+	statsLabel.TextSize = 12
+	statsLabel.Font = Enum.Font.Gotham
+	statsLabel.Text = "📊 Level: " .. stats.level .. " | 💎 XP: " .. stats.xp .. " | 🎒 Items: " .. stats.items .. "\n⚡ XP/min: " .. stats.xpPerMinute .. " | 🚨 Suspição: " .. stats.suspicionScore
+	statsLabel.TextXAlignment = Enum.TextXAlignment.Left
+	statsLabel.TextYAlignment = Enum.TextYAlignment.Top
+	statsLabel.Parent = card
+	
+	-- Botão Kickar
+	local kickButton = Instance.new("TextButton")
+	kickButton.Name = "KickButton"
+	kickButton.Size = UDim2.new(0, 100, 0, 30)
+	kickButton.Position = UDim2.new(0, 5, 1, -35)
+	kickButton.BackgroundColor3 = Color3.fromRGB(255, 100, 0)
+	kickButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+	kickButton.TextSize = 12
+	kickButton.Font = Enum.Font.GothamBold
+	kickButton.Text = "👢 KICKAR"
+	kickButton.Parent = card
+	
+	kickButton.MouseButton1Click:Connect(function()
+		kickPlayerEvent:FireServer(stats.playerId, "Suspeita de XP/Level Hack")
+		card:Destroy()
+		suspiciousPlayers[stats.playerId] = nil
+	end)
+	
+	-- Botão Banir
+	local banButton = Instance.new("TextButton")
+	banButton.Name = "BanButton"
+	banButton.Size = UDim2.new(0, 100, 0, 30)
+	banButton.Position = UDim2.new(0, 110, 1, -35)
+	banButton.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+	banButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+	banButton.TextSize = 12
+	banButton.Font = Enum.Font.GothamBold
+	banButton.Text = "🚫 BANIR"
+	banButton.Parent = card
+	
+	banButton.MouseButton1Click:Connect(function()
+		kickPlayerEvent:FireServer(stats.playerId, "Banido permanentemente por Hack")
+		card:Destroy()
+		suspiciousPlayers[stats.playerId] = nil
+	end)
+	
+	-- Botão Ver Logs
+	local logsButton = Instance.new("TextButton")
+	logsButton.Name = "LogsButton"
+	logsButton.Size = UDim2.new(0, 100, 0, 30)
+	logsButton.Position = UDim2.new(0, 215, 1, -35)
+	logsButton.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
+	logsButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+	logsButton.TextSize = 12
+	logsButton.Font = Enum.Font.GothamBold
+	logsButton.Text = "📋 LOGS"
+	logsButton.Parent = card
+	
+	logsButton.MouseButton1Click:Connect(function()
+		print("📋 Logs do player " .. stats.playerName .. ":")
+		print("   XP/min: " .. stats.xpPerMinute)
+		print("   Suspição: " .. stats.suspicionScore)
+	end)
+	
+	suspiciousPlayers[stats.playerId] = card
+end
+
+-- ============================================
+-- RECEBER ATUALIZAÇÕES DO SERVIDOR
+-- ============================================
+updateStatsEvent.OnClientEvent:Connect(function(stats)
+	-- Se é suspeito, criar/atualizar card
+	if stats.isSuspicious then
+		if suspiciousPlayers[stats.playerId] then
+			suspiciousPlayers[stats.playerId]:Destroy()
+		end
+		createPlayerCard(stats)
+		
+		-- Auto-atualizar scroll
+		scrollFrame.CanvasSize = UDim2.new(0, 0, 0, listLayout.AbsoluteContentSize.Y + 10)
+	end
+end)
+
+-- ============================================
+-- CONTROLES DO PAINEL
+-- ============================================
+
+-- Abrir/Fechar painel
+toggleButton.MouseButton1Click:Connect(function()
+	mainFrame.Visible = not mainFrame.Visible
+	if mainFrame.Visible then
+		toggleButton.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
+		toggleButton.Text = "✓ ABERTO"
+	else
+		toggleButton.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+		toggleButton.Text = "👮 ADMIN"
+	end
+end)
+
+-- Fechar com botão X
+closeButton.MouseButton1Click:Connect(function()
+	mainFrame.Visible = false
+	toggleButton.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+	toggleButton.Text = "👮 ADMIN"
+end)
+
+-- Tecla de atalho (P para abrir/fechar)
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
+	if input.KeyCode == Enum.KeyCode.P then
+		mainFrame.Visible = not mainFrame.Visible
+	end
+end)
+
+print("✅ Admin Panel ativado para " .. player.Name)
