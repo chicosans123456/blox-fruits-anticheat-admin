@@ -1,169 +1,553 @@
 
---// MYGAME43 ADMIN V2
---// Sistema de administração para Roblox Studio
---// Coloque este Script em ServerScriptService
+--==================================================
+-- mygame43 | ADMIN PANEL INSTALLER
+-- Criador: Chico
+-- UserId: 5618088588
+-- Cole no Command Bar do Roblox Studio
+--==================================================
+
+local ServerScriptService = game:GetService("ServerScriptService")
+local StarterPlayer = game:GetService("StarterPlayer")
+
+local StarterPlayerScripts = StarterPlayer:WaitForChild("StarterPlayerScripts")
+
+local OWNER_USER_ID = 5618088588
+
+--==================================================
+-- ADMIN SERVER
+--==================================================
+
+local serverSource = [==[
+-- mygame43 | AdminServer
+-- ServerScriptService
 
 local Players = game:GetService("Players")
-local DataStoreService = game:GetService("DataStoreService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local BanStore = DataStoreService:GetDataStore("MYGAME43_Bans_V2")
+local OWNER_USER_ID = 5618088588
 
---// CONFIGURAÇÃO
 local ADMINS = {
-    ["Dosangrlio9"] = true,
+    [OWNER_USER_ID] = true,
 }
 
-local PREFIX = "!"
+local remote = ReplicatedStorage:FindFirstChild("AdminRemote")
 
---// Verificar administrador
-local function IsAdmin(player)
-    return ADMINS[player.Name] == true
+if not remote then
+    remote = Instance.new("RemoteEvent")
+    remote.Name = "AdminRemote"
+    remote.Parent = ReplicatedStorage
 end
 
---// Encontrar jogador
-local function FindPlayer(name)
-    if not name then
-        return nil
+local function isAdmin(player)
+    return ADMINS[player.UserId] == true
+end
+
+local function notify(player, message)
+    remote:FireClient(player, "Notify", message)
+end
+
+local function getPlayers()
+    local list = {}
+
+    for _, target in ipairs(Players:GetPlayers()) do
+        table.insert(list, {
+            Name = target.Name,
+            DisplayName = target.DisplayName,
+            UserId = target.UserId,
+        })
     end
 
-    name = string.lower(name)
+    return list
+end
 
-    for _, player in ipairs(Players:GetPlayers()) do
-        if string.lower(player.Name) == name
-            or string.sub(string.lower(player.Name), 1, #name) == name then
-            return player
+local function banPlayer(admin, targetUserId, duration, reason)
+    if not isAdmin(admin) then
+        return
+    end
+
+    if typeof(targetUserId) ~= "number" then
+        return
+    end
+
+    if targetUserId == admin.UserId then
+        notify(admin, "Voce nao pode banir a si mesmo.")
+        return
+    end
+
+    if typeof(duration) ~= "number" then
+        return
+    end
+
+    if duration ~= -1 then
+        duration = math.floor(duration)
+
+        if duration < 60 or duration > 2592000 then
+            notify(admin, "Duracao invalida.")
+            return
         end
     end
 
-    return nil
-end
+    reason = tostring(reason or "Violacao das regras.")
+    reason = string.sub(reason, 1, 400)
 
---// Salvar banimento
-local function SaveBan(userId, duration, reason)
     local success, err = pcall(function()
-        BanStore:SetAsync(tostring(userId), {
-            expires = duration,
-            reason = reason or "Banido pela administração",
+        Players:BanAsync({
+            UserIds = {targetUserId},
+            ApplyToUniverse = true,
+            Duration = duration,
+            DisplayReason = reason,
+            PrivateReason = "mygame43 Admin: "
+                .. admin.UserId .. " | " .. reason,
+            ExcludeAltAccounts = false,
         })
     end)
 
     if not success then
-        warn("Erro ao salvar banimento:", err)
+        warn("[mygame43] Ban falhou:", err)
+        notify(admin, "Erro ao banir. Veja o Output.")
+        return
     end
 
-    return success
+    notify(admin, "Banimento aplicado com sucesso!")
+
+    local target = Players:GetPlayerByUserId(targetUserId)
+
+    if target then
+        target:Kick(
+            "Voce foi banido do mygame43.\n\nMotivo: "
+            .. reason
+        )
+    end
 end
 
---// Remover banimento
-local function RemoveBan(userId)
-    local success, err = pcall(function()
-        BanStore:RemoveAsync(tostring(userId))
-    end)
-
-    if not success then
-        warn("Erro ao remover banimento:", err)
+remote.OnServerEvent:Connect(function(player, action, data)
+    if not isAdmin(player) then
+        warn("[mygame43] Acesso negado:", player.Name)
+        return
     end
 
-    return success
-end
+    if action == "RequestPlayers" then
+        remote:FireClient(player, "PlayersList", getPlayers())
 
---// Verificar banimento ao entrar
-Players.PlayerAdded:Connect(function(player)
-    local success, data = pcall(function()
-        return BanStore:GetAsync(tostring(player.UserId))
-    end)
-
-    if success and data then
-        if data.expires == 0 or os.time() < data.expires then
-            player:Kick(
-                "Você está banido do MYGAME43.\nMotivo: "
-                .. tostring(data.reason)
-            )
-            return
-        else
-            RemoveBan(player.UserId)
-        end
-    end
-
-    player.Chatted:Connect(function(message)
-        if not IsAdmin(player) then
+    elseif action == "Ban" then
+        if typeof(data) ~= "table" then
             return
         end
 
-        local args = string.split(message, " ")
-        local command = string.lower(args[1] or "")
-
-        --// KICK
-        if command == PREFIX .. "kick" then
-            local target = FindPlayer(args[2])
-
-            if target and target ~= player then
-                target:Kick("Você foi expulso do MYGAME43.")
-            end
-        end
-
-        --// BAN PERMANENTE
-        if command == PREFIX .. "ban" then
-            local target = FindPlayer(args[2])
-
-            if target and target ~= player then
-                local success = SaveBan(
-                    target.UserId,
-                    0,
-                    "Banimento permanente"
-                )
-
-                if success then
-                    target:Kick(
-                        "Você foi banido permanentemente do MYGAME43."
-                    )
-                end
-            end
-        end
-
-        --// BAN TEMPORÁRIO
-        if command == PREFIX .. "tempban" then
-            local target = FindPlayer(args[2])
-            local minutes = tonumber(args[3])
-
-            if target and target ~= player
-                and minutes
-                and minutes > 0
-                and minutes <= 43200 then
-
-                local expires = os.time() + (minutes * 60)
-
-                local success = SaveBan(
-                    target.UserId,
-                    expires,
-                    "Banimento temporário"
-                )
-
-                if success then
-                    target:Kick(
-                        "Você foi banido por "
-                        .. minutes
-                        .. " minutos."
-                    )
-                end
-            end
-        end
-
-        --// UNBAN
-        if command == PREFIX .. "unban" then
-            local username = args[2]
-
-            if username then
-                local success, userId = pcall(function()
-                    return Players:GetUserIdFromNameAsync(username)
-                end)
-
-                if success and userId then
-                    RemoveBan(userId)
-                end
-            end
-        end
-    end)
+        banPlayer(
+            player,
+            data.UserId,
+            data.Duration,
+            data.Reason
+        )
+    end
 end)
 
-print("MYGAME43 ADMIN V2 carregado!")
+print("[mygame43] AdminServer iniciado!")
+]==]
+
+--==================================================
+-- ADMIN CLIENT
+--==================================================
+
+local clientSource = [==[
+-- mygame43 | AdminClient
+-- StarterPlayerScripts
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local player = Players.LocalPlayer
+local remote = ReplicatedStorage:WaitForChild("AdminRemote")
+
+local OWNER_USER_ID = 5618088588
+
+if player.UserId ~= OWNER_USER_ID then
+    return
+end
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "mygame43Admin"
+gui.ResetOnSpawn = false
+gui.Parent = player:WaitForChild("PlayerGui")
+
+local function create(className, props, parent)
+    local obj = Instance.new(className)
+
+    for property, value in pairs(props) do
+        obj[property] = value
+    end
+
+    obj.Parent = parent
+    return obj
+end
+
+--==================================================
+-- BOTAO ADMIN
+--==================================================
+
+local openButton = create("TextButton", {
+    Size = UDim2.fromOffset(100, 40),
+    Position = UDim2.new(0, 15, 0.5, -20),
+    BackgroundColor3 = Color3.fromRGB(160, 20, 35),
+    Text = "ADMIN",
+    TextColor3 = Color3.new(1, 1, 1),
+    Font = Enum.Font.GothamBold,
+    TextSize = 14,
+}, gui)
+
+create("UICorner", {
+    CornerRadius = UDim.new(0, 8),
+}, openButton)
+
+--==================================================
+-- PAINEL
+--==================================================
+
+local main = create("Frame", {
+    Size = UDim2.fromOffset(430, 390),
+    Position = UDim2.new(0.5, -215, 0.5, -195),
+    BackgroundColor3 = Color3.fromRGB(20, 20, 25),
+    BorderSizePixel = 0,
+    Visible = true,
+}, gui)
+
+create("UICorner", {
+    CornerRadius = UDim.new(0, 12),
+}, main)
+
+create("UIStroke", {
+    Color = Color3.fromRGB(180, 25, 40),
+    Thickness = 2,
+}, main)
+
+create("TextLabel", {
+    Size = UDim2.new(1, -55, 0, 50),
+    Position = UDim2.fromOffset(15, 5),
+    BackgroundTransparency = 1,
+    Text = "mygame43 | ADMIN PANEL",
+    TextColor3 = Color3.fromRGB(255, 60, 70),
+    Font = Enum.Font.GothamBold,
+    TextSize = 19,
+    TextXAlignment = Enum.TextXAlignment.Left,
+}, main)
+
+local close = create("TextButton", {
+    Size = UDim2.fromOffset(40, 40),
+    Position = UDim2.new(1, -45, 0, 10),
+    BackgroundColor3 = Color3.fromRGB(130, 20, 30),
+    Text = "X",
+    TextColor3 = Color3.new(1, 1, 1),
+    Font = Enum.Font.GothamBold,
+    TextSize = 18,
+}, main)
+
+create("UICorner", {
+    CornerRadius = UDim.new(0, 8),
+}, close)
+
+local selectedUserId = nil
+local selectedName = nil
+
+local selectedLabel = create("TextLabel", {
+    Size = UDim2.new(1, -30, 0, 30),
+    Position = UDim2.fromOffset(15, 58),
+    BackgroundTransparency = 1,
+    Text = "Jogador: nenhum selecionado",
+    TextColor3 = Color3.fromRGB(230, 230, 230),
+    Font = Enum.Font.Gotham,
+    TextSize = 14,
+    TextXAlignment = Enum.TextXAlignment.Left,
+}, main)
+
+local playersFrame = create("ScrollingFrame", {
+    Size = UDim2.new(1, -30, 0, 115),
+    Position = UDim2.fromOffset(15, 92),
+    BackgroundColor3 = Color3.fromRGB(30, 30, 37),
+    BorderSizePixel = 0,
+    CanvasSize = UDim2.new(),
+    ScrollBarThickness = 5,
+}, main)
+
+create("UICorner", {
+    CornerRadius = UDim.new(0, 8),
+}, playersFrame)
+
+local layout = create("UIListLayout", {
+    Padding = UDim.new(0, 5),
+}, playersFrame)
+
+local reasonBox = create("TextBox", {
+    Size = UDim2.new(1, -30, 0, 40),
+    Position = UDim2.fromOffset(15, 220),
+    BackgroundColor3 = Color3.fromRGB(35, 35, 43),
+    PlaceholderText = "Motivo do banimento...",
+    Text = "",
+    TextColor3 = Color3.new(1, 1, 1),
+    PlaceholderColor3 = Color3.fromRGB(150, 150, 150),
+    Font = Enum.Font.Gotham,
+    TextSize = 14,
+    ClearTextOnFocus = false,
+}, main)
+
+create("UICorner", {
+    CornerRadius = UDim.new(0, 8),
+}, reasonBox)
+
+local durationBox = create("TextBox", {
+    Size = UDim2.new(1, -30, 0, 40),
+    Position = UDim2.fromOffset(15, 270),
+    BackgroundColor3 = Color3.fromRGB(35, 35, 43),
+    PlaceholderText = "Duracao em minutos (ex: 60)",
+    Text = "",
+    TextColor3 = Color3.new(1, 1, 1),
+    PlaceholderColor3 = Color3.fromRGB(150, 150, 150),
+    Font = Enum.Font.Gotham,
+    TextSize = 14,
+    ClearTextOnFocus = false,
+}, main)
+
+create("UICorner", {
+    CornerRadius = UDim.new(0, 8),
+}, durationBox)
+
+local tempButton = create("TextButton", {
+    Size = UDim2.new(0.47, 0, 0, 45),
+    Position = UDim2.fromOffset(15, 325),
+    BackgroundColor3 = Color3.fromRGB(180, 35, 45),
+    Text = "BAN TEMPORARIO",
+    TextColor3 = Color3.new(1, 1, 1),
+    Font = Enum.Font.GothamBold,
+    TextSize = 12,
+}, main)
+
+create("UICorner", {
+    CornerRadius = UDim.new(0, 8),
+}, tempButton)
+
+local permButton = create("TextButton", {
+    Size = UDim2.new(0.47, 0, 0, 45),
+    Position = UDim2.new(0.53, 0, 0, 325),
+    BackgroundColor3 = Color3.fromRGB(100, 15, 25),
+    Text = "BAN PERMANENTE",
+    TextColor3 = Color3.new(1, 1, 1),
+    Font = Enum.Font.GothamBold,
+    TextSize = 12,
+}, main)
+
+create("UICorner", {
+    CornerRadius = UDim.new(0, 8),
+}, permButton)
+
+--==================================================
+-- LISTA
+--==================================================
+
+local function updatePlayers(list)
+    for _, child in ipairs(playersFrame:GetChildren()) do
+        if child:IsA("TextButton") then
+            child:Destroy()
+        end
+    end
+
+    for _, info in ipairs(list) do
+        local button = create("TextButton", {
+            Size = UDim2.new(1, -10, 0, 35),
+            BackgroundColor3 = Color3.fromRGB(45, 45, 55),
+            Text = info.DisplayName .. " (@" .. info.Name .. ")",
+            TextColor3 = Color3.new(1, 1, 1),
+            Font = Enum.Font.Gotham,
+            TextSize = 13,
+        }, playersFrame)
+
+        create("UICorner", {
+            CornerRadius = UDim.new(0, 6),
+        }, button)
+
+        button.MouseButton1Click:Connect(function()
+            selectedUserId = info.UserId
+            selectedName = info.Name
+            selectedLabel.Text = "Jogador: " .. info.Name
+        end)
+    end
+
+    playersFrame.CanvasSize = UDim2.fromOffset(
+        0,
+        layout.AbsoluteContentSize.Y + 10
+    )
+end
+
+--==================================================
+-- CONFIRMACAO
+--==================================================
+
+local function confirmBan(duration)
+    if not selectedUserId then
+        warn("Selecione um jogador primeiro.")
+        return
+    end
+
+    local reason = reasonBox.Text
+
+    if reason == "" then
+        reason = "Violacao das regras do servidor."
+    end
+
+    local message = "Banir " .. selectedName .. "?\n\nMotivo: " .. reason
+
+    if duration == -1 then
+        message = message .. "\n\nBanimento PERMANENTE"
+    else
+        message = message .. "\n\nDuracao: " .. duration .. " segundos"
+    end
+
+    local confirm = create("Frame", {
+        Size = UDim2.fromOffset(350, 190),
+        Position = UDim2.new(0.5, -175, 0.5, -95),
+        BackgroundColor3 = Color3.fromRGB(30, 25, 30),
+        BorderSizePixel = 0,
+        ZIndex = 10,
+    }, gui)
+
+    create("UICorner", {
+        CornerRadius = UDim.new(0, 10),
+    }, confirm)
+
+    create("TextLabel", {
+        Size = UDim2.new(1, -20, 0, 105),
+        Position = UDim2.fromOffset(10, 10),
+        BackgroundTransparency = 1,
+        Text = message,
+        TextColor3 = Color3.new(1, 1, 1),
+        Font = Enum.Font.Gotham,
+        TextSize = 13,
+        TextWrapped = true,
+        ZIndex = 11,
+    }, confirm)
+
+    local yes = create("TextButton", {
+        Size = UDim2.new(0.44, 0, 0, 40),
+        Position = UDim2.fromOffset(15, 135),
+        BackgroundColor3 = Color3.fromRGB(180, 25, 40),
+        Text = "CONFIRMAR",
+        TextColor3 = Color3.new(1, 1, 1),
+        Font = Enum.Font.GothamBold,
+        TextSize = 12,
+        ZIndex = 11,
+    }, confirm)
+
+    create("UICorner", {
+        CornerRadius = UDim.new(0, 8),
+    }, yes)
+
+    local no = create("TextButton", {
+        Size = UDim2.new(0.44, 0, 0, 40),
+        Position = UDim2.new(0.52, 0, 0, 135),
+        BackgroundColor3 = Color3.fromRGB(60, 60, 70),
+        Text = "CANCELAR",
+        TextColor3 = Color3.new(1, 1, 1),
+        Font = Enum.Font.GothamBold,
+        TextSize = 12,
+        ZIndex = 11,
+    }, confirm)
+
+    create("UICorner", {
+        CornerRadius = UDim.new(0, 8),
+    }, no)
+
+    yes.MouseButton1Click:Connect(function()
+        remote:FireServer("Ban", {
+            UserId = selectedUserId,
+            Duration = duration,
+            Reason = reason,
+        })
+
+        confirm:Destroy()
+    end)
+
+    no.MouseButton1Click:Connect(function()
+        confirm:Destroy()
+    end)
+end
+
+--==================================================
+-- BOTOES
+--==================================================
+
+openButton.MouseButton1Click:Connect(function()
+    main.Visible = not main.Visible
+end)
+
+close.MouseButton1Click:Connect(function()
+    main.Visible = false
+end)
+
+tempButton.MouseButton1Click:Connect(function()
+    local minutes = tonumber(durationBox.Text)
+
+    if not minutes or minutes < 1 then
+        warn("Digite uma duracao valida.")
+        return
+    end
+
+    confirmBan(math.floor(minutes) * 60)
+end)
+
+permButton.MouseButton1Click:Connect(function()
+    confirmBan(-1)
+end)
+
+remote.OnClientEvent:Connect(function(action, data)
+    if action == "Notify" then
+        print("[mygame43] " .. tostring(data))
+
+    elseif action == "PlayersList" then
+        updatePlayers(data)
+    end
+end)
+
+remote:FireServer("RequestPlayers")
+
+task.spawn(function()
+    while true do
+        task.wait(10)
+
+        if main.Visible then
+            remote:FireServer("RequestPlayers")
+        end
+    end
+end)
+
+print("[mygame43] AdminClient iniciado!")
+]==]
+
+--==================================================
+-- INSTALAR
+--==================================================
+
+local oldServer = ServerScriptService:FindFirstChild("AdminServer")
+if oldServer then
+    oldServer:Destroy()
+end
+
+local oldClient = StarterPlayerScripts:FindFirstChild("AdminClient")
+if oldClient then
+    oldClient:Destroy()
+end
+
+local serverScript = Instance.new("Script")
+serverScript.Name = "AdminServer"
+serverScript.Source = serverSource
+serverScript.Parent = ServerScriptService
+
+local clientScript = Instance.new("LocalScript")
+clientScript.Name = "AdminClient"
+clientScript.Source = clientSource
+clientScript.Parent = StarterPlayerScripts
+
+print("====================================")
+print("mygame43 Admin instalado com sucesso!")
+print("Dono UserId:", OWNER_USER_ID)
+print("AdminServer criado!")
+print("AdminClient criado!")
+print("====================================")
